@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distil-qwen"
+version = "0.1.0"
+description = "Efficient knowledge distillation for Qwen3-ASR"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "Kadir Nar" }]
+keywords = ["automatic-speech-recognition", "distillation", "qwen", "pytorch"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "accelerate>=1.12,<2",
+  "huggingface-hub>=0.34",
+  "numpy>=1.24",
+  "torch>=2.2",
+  "transformers==4.57.6",
+]
+
+[project.optional-dependencies]
+qwen = ["qwen-asr==0.0.6"]
+train = [
+  "datasets[audio]>=3.0",
+  "librosa>=0.10",
+  "qwen-asr==0.0.6",
+  "soundfile>=0.12",
+]
+inference = ["qwen-asr==0.0.6"]
+quantization = ["bitsandbytes>=0.45"]
+vllm = ["qwen-asr[vllm]==0.0.6"]
+dev = [
+  "build>=1.2",
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.9",
+  "twine>=6.0",
+]
+
+[project.scripts]
+distil-qwen = "distil_qwen.cli:main"
+
+[project.urls]
+Documentation = "https://github.com/kadirnar/distil-qwen#readme"
+Issues = "https://github.com/kadirnar/distil-qwen/issues"
+Repository = "https://github.com/kadirnar/distil-qwen"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = ["qwen_contract: contract tests against the optional official qwen-asr package"]
+
+[tool.coverage.run]
+branch = true
+source = ["distil_qwen"]
+omit = [
+  "src/distil_qwen/cli.py",
+  "src/distil_qwen/data/pseudo_label.py",
+  "src/distil_qwen/training/data.py",
+  "src/distil_qwen/training/run.py",
+  "src/distil_qwen/training/trainer.py",
+]
+
+[tool.coverage.report]
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "N", "SIM", "UP", "W"]
+ignore = ["UP006", "UP007", "UP035", "UP045"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
