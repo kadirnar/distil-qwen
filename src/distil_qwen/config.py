@@ -33,6 +33,7 @@ class DistillationConfig:
     logit_chunk_size: int = 32
     label_smoothing: float = 0.0
     reuse_audio_features: bool = True
+    loss_backend: str = "auto"
 
     def __post_init__(self) -> None:
         if self.temperature <= 0:
@@ -45,6 +46,8 @@ class DistillationConfig:
             raise ValueError("logit_chunk_size must be at least 1")
         if not 0 <= self.label_smoothing < 1:
             raise ValueError("label_smoothing must be in [0, 1)")
+        if self.loss_backend not in {"auto", "torch", "liger"}:
+            raise ValueError("loss_backend must be 'auto', 'torch', or 'liger'")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

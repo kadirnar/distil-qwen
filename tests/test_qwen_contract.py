@@ -11,6 +11,8 @@ from qwen_asr.core.transformers_backend import (  # noqa: E402
 )
 
 from distil_qwen import DistillationConfig, StudentSpec, initialize_student  # noqa: E402
+from distil_qwen.training import optimizations  # noqa: E402
+from distil_qwen.training.cache import AudioFeatureCache  # noqa: E402
 from distil_qwen.training.engine import (  # noqa: E402
     configure_student_trainability,
     configure_teacher,
@@ -75,14 +77,51 @@ def test_real_qwen_initialization_and_shared_audio_distillation(tmp_path) -> Non
         "feature_attention_mask": torch.ones(1, 20, dtype=torch.long),
         "labels": torch.tensor([[-100, -100, -100, -100, 4, 5]]),
     }
+    audio_cache = AudioFeatureCache(max_memory_mb=1)
+    batch["audio_cache_keys"] = ["contract-audio"]
     output = distillation_step(
         student,
         teacher,
         batch,
         DistillationConfig(logit_chunk_size=1),
+        audio_cache=audio_cache,
     )
     output.loss.backward()
+    with torch.no_grad():
+        distillation_step(
+            student,
+            teacher,
+            batch,
+            DistillationConfig(logit_chunk_size=1),
+            audio_cache=audio_cache,
+        )
     assert output.num_tokens == 2
     assert torch.isfinite(output.loss)
     assert any(parameter.grad is not None for parameter in student.parameters())
     assert all(parameter.grad is None for parameter in teacher.parameters())
+    assert audio_cache.stats().hits == 1
+    assert audio_cache.stats().misses == 1
+
+
+def test_liger_adapter_recognizes_real_qwen_thinker_modules(monkeypatch) -> None:
+    class FakeRMS:
+        def forward(self, hidden_states):
+            return hidden_states
+
+    class FakeSwiGLU:
+        def forward(self, hidden_states):
+            return hidden_states
+
+    from qwen_asr.core.transformers_backend import modeling_qwen3_asr
+
+    original_rope = modeling_qwen3_asr.apply_rotary_pos_emb
+    monkeypatch.setattr(
+        optimizations,
+        "_load_liger_components",
+        lambda: (FakeRMS, FakeSwiGLU, original_rope),
+    )
+    model = Qwen3ASRForConditionalGeneration(tiny_qwen_config())
+    report = optimizations.apply_liger_kernels(model)
+    assert report.rms_norms == 17
+    assert report.swiglu_mlps == 4
+    assert report.rope is True

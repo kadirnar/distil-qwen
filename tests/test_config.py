@@ -18,6 +18,7 @@ def test_default_configs_are_valid() -> None:
         (lambda: DistillationConfig(ce_weight=0, kl_weight=0), "at least one"),
         (lambda: DistillationConfig(logit_chunk_size=0), "logit_chunk_size"),
         (lambda: DistillationConfig(label_smoothing=1), "label_smoothing"),
+        (lambda: DistillationConfig(loss_backend="magic"), "loss_backend"),
         (lambda: InferenceConfig(backend="invalid"), "backend"),
         (lambda: InferenceConfig(dtype="int8"), "dtype"),
         (lambda: InferenceConfig(attention="magic"), "attention"),

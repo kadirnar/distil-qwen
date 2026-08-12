@@ -15,8 +15,14 @@ exact logit KL divergence.
 pip install -e ".[train]"
 ```
 
-For inference only, use `pip install -e ".[inference]"`. Add `quantization` or `vllm` for those
-backends.
+On a CUDA training host, add Liger and FlashAttention:
+
+```bash
+pip install -e ".[train,kernels]"
+MAX_JOBS=4 pip install flash-attn==2.8.3.post1 --no-build-isolation
+```
+
+For inference only, use `pip install -e ".[inference]"`. Add `quantization` or `vllm` when needed.
 
 ## Quick start
 
@@ -66,11 +72,12 @@ print(result.text)
 
 ## What is optimized
 
-- Frozen audio features are computed once and reused by teacher and student.
+- Frozen audio features are shared by teacher and student and can be cached across epochs.
 - Only supervised tokens are projected to the 151k-token vocabulary.
-- Exact KL and CE are calculated in bounded token chunks.
-- BF16, SDPA/FlashAttention 2, fused AdamW, gradient checkpointing, and TF32 are selected when
-  supported.
+- Frozen-head KL/CE retains hidden gradients instead of vocabulary logits; an optional Liger fused
+  loss covers trainable heads.
+- Liger RMSNorm/SwiGLU/RoPE, BF16, FlashAttention 2, fused AdamW, non-reentrant checkpointing, and
+  TF32 are selected when supported.
 - Inference supports KV caching, optional compilation, 4/8-bit loading, and vLLM.
 - Pseudo-labels can be filtered by WER/CER and repeated n-grams.
 
@@ -80,4 +87,3 @@ design rationale.
 ## License
 
 Apache-2.0. Qwen3-ASR is also distributed under Apache-2.0.
-

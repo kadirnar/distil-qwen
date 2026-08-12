@@ -55,6 +55,23 @@ def test_collator_masks_prompts_with_left_padding() -> None:
     ]
 
 
+def test_collator_emits_stable_or_explicit_audio_cache_keys() -> None:
+    features = [
+        {"audio": np.zeros(16), "text": "first", "id": "a"},
+        {"audio": np.ones(8), "text": "second", "id": "b"},
+    ]
+    hashed = Qwen3ASRDataCollator(FakeProcessor(), include_audio_cache_keys=True)(features)[
+        "audio_cache_keys"
+    ]
+    assert len(hashed) == 2
+    assert hashed[0] != hashed[1]
+
+    explicit = Qwen3ASRDataCollator(
+        FakeProcessor(), include_audio_cache_keys=True, cache_key_column="id"
+    )(features)["audio_cache_keys"]
+    assert explicit == ["a", "b"]
+
+
 def test_feature_length_formula() -> None:
     values = feature_lengths_after_encoder(torch.tensor([100, 200, 3000]))
     assert values.tolist() == [13, 26, 390]
