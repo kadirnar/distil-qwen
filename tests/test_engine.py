@@ -7,6 +7,7 @@ from torch import nn
 from distil_qwen.config import DistillationConfig
 from distil_qwen.errors import ModelContractError
 from distil_qwen.models.accessors import get_audio_tower, get_lm_head, get_text_model, get_thinker
+from distil_qwen.training.cache import AudioFeatureCache
 from distil_qwen.training.engine import (
     configure_student_trainability,
     configure_teacher,
@@ -82,6 +83,34 @@ def test_paired_hidden_states_reuses_teacher_audio_once() -> None:
     assert states.teacher.shape == (2, 4, 4)
     assert student.thinker.audio_calls == 0
     assert teacher.thinker.audio_calls == 1
+
+
+def test_paired_hidden_states_reuses_persistent_audio_cache() -> None:
+    student, teacher = ToyASR(), ToyASR()
+    batch = make_batch()
+    batch["audio_cache_keys"] = ["first", "second"]
+    cache = AudioFeatureCache(max_memory_mb=1)
+
+    paired_hidden_states(student, teacher, batch, audio_cache=cache)
+    paired_hidden_states(student, teacher, batch, audio_cache=cache)
+
+    assert teacher.thinker.audio_calls == 1
+    assert student.thinker.audio_calls == 0
+    assert cache.stats().hits == 2
+    assert cache.stats().misses == 2
+
+
+def test_audio_cache_rejects_mismatched_keys() -> None:
+    student, teacher = ToyASR(), ToyASR()
+    batch = make_batch()
+    batch["audio_cache_keys"] = ["only-one"]
+    with pytest.raises(ModelContractError, match="cache keys"):
+        paired_hidden_states(
+            student,
+            teacher,
+            batch,
+            audio_cache=AudioFeatureCache(max_memory_mb=1),
+        )
 
 
 def test_paired_hidden_states_can_train_audio_tower_separately() -> None:

@@ -10,6 +10,8 @@ import torch
 from distil_qwen.config import DistillationConfig
 from distil_qwen.errors import ModelContractError
 from distil_qwen.models.accessors import get_audio_tower, get_lm_head, get_text_model, get_thinker
+from distil_qwen.training.cache import AudioFeatureCache
+from distil_qwen.training.collator import feature_lengths_after_encoder
 from distil_qwen.training.loss import DistillationLossOutput, chunked_distillation_loss
 
 
@@ -49,6 +51,58 @@ def _audio_kwargs(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     return {key: batch[key] for key in keys if key in batch}
 
 
+def _cached_audio_features(
+    thinker: Any,
+    audio_inputs: Dict[str, torch.Tensor],
+    cache_keys: Any,
+    cache: AudioFeatureCache,
+) -> torch.Tensor:
+    input_features = audio_inputs["input_features"]
+    if not isinstance(cache_keys, (list, tuple)) or len(cache_keys) != input_features.shape[0]:
+        raise ModelContractError("audio cache keys must match the number of input feature rows")
+
+    features: list[Optional[torch.Tensor]] = [None] * len(cache_keys)
+    missing_indices = []
+    for index, key in enumerate(cache_keys):
+        cached = cache.get(str(key))
+        if cached is None:
+            missing_indices.append(index)
+        else:
+            features[index] = cached
+
+    if missing_indices:
+        index_tensor = torch.tensor(missing_indices, device=input_features.device)
+        missing_inputs = {
+            name: value.index_select(0, index_tensor)
+            if value.ndim > 0 and value.shape[0] == input_features.shape[0]
+            else value
+            for name, value in audio_inputs.items()
+        }
+        encoded = thinker.get_audio_features(**missing_inputs)
+        feature_mask = missing_inputs.get("feature_attention_mask")
+        if feature_mask is None:
+            raise ModelContractError("audio feature caching requires feature_attention_mask")
+        output_lengths = feature_lengths_after_encoder(feature_mask.sum(dim=-1))
+        if int(output_lengths.sum()) != encoded.shape[0]:
+            raise ModelContractError("cached audio output lengths do not match encoded features")
+        for index, value in zip(missing_indices, encoded.split(output_lengths.tolist())):
+            cache.put(str(cache_keys[index]), value)
+            features[index] = value
+
+    return torch.cat(
+        [
+            value.to(
+                device=input_features.device,
+                dtype=input_features.dtype,
+                non_blocking=input_features.is_cuda,
+            )
+            for value in features
+            if value is not None
+        ],
+        dim=0,
+    )
+
+
 def _inject_audio(
     thinker: Any, input_ids: torch.Tensor, audio_features: torch.Tensor
 ) -> torch.Tensor:
@@ -82,8 +136,9 @@ def _text_hidden_states(
 def paired_hidden_states(
     student: torch.nn.Module,
     teacher: torch.nn.Module,
-    batch: Dict[str, torch.Tensor],
+    batch: Dict[str, Any],
     reuse_audio_features: bool = True,
+    audio_cache: Optional[AudioFeatureCache] = None,
 ) -> HiddenStatePair:
     """Forward both text models, optionally encoding frozen audio exactly once."""
 
@@ -96,7 +151,15 @@ def paired_hidden_states(
     if audio_inputs:
         if reuse_audio_features:
             with torch.no_grad():
-                shared_audio = teacher_thinker.get_audio_features(**audio_inputs)
+                if audio_cache is not None and audio_cache.enabled:
+                    shared_audio = _cached_audio_features(
+                        teacher_thinker,
+                        audio_inputs,
+                        batch.get("audio_cache_keys"),
+                        audio_cache,
+                    )
+                else:
+                    shared_audio = teacher_thinker.get_audio_features(**audio_inputs)
             student_embeds = _inject_audio(student_thinker, input_ids, shared_audio)
             teacher_embeds = _inject_audio(teacher_thinker, input_ids, shared_audio)
         else:
@@ -123,14 +186,16 @@ def paired_hidden_states(
 def distillation_step(
     student: torch.nn.Module,
     teacher: torch.nn.Module,
-    batch: Dict[str, torch.Tensor],
+    batch: Dict[str, Any],
     config: DistillationConfig,
+    audio_cache: Optional[AudioFeatureCache] = None,
 ) -> DistillationLossOutput:
     states = paired_hidden_states(
         student,
         teacher,
         batch,
         reuse_audio_features=config.reuse_audio_features,
+        audio_cache=audio_cache,
     )
     return chunked_distillation_loss(
         student_hidden_states=states.student,

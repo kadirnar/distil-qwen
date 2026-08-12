@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
+
+from distil_qwen.training.cache import audio_cache_key
 
 
 def feature_lengths_after_encoder(input_lengths: torch.Tensor) -> torch.Tensor:
@@ -78,6 +80,8 @@ class Qwen3ASRDataCollator:
     text_column: str = "text"
     prompt_column: str = "prompt"
     sampling_rate: int = 16_000
+    include_audio_cache_keys: bool = False
+    cache_key_column: Optional[str] = None
 
     def _prefix(self, prompt: str) -> str:
         messages = [
@@ -111,7 +115,7 @@ class Qwen3ASRDataCollator:
             )
         return [int(length) for length in tokenized["attention_mask"].sum(dim=-1)]
 
-    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not features:
             raise ValueError("cannot collate an empty batch")
         audios = [load_audio(item[self.audio_column], self.sampling_rate) for item in features]
@@ -137,4 +141,11 @@ class Qwen3ASRDataCollator:
                 raise ValueError("target text produced no trainable tokens")
             labels[row, active_positions[:prefix_length]] = -100
         batch["labels"] = labels
+        if self.include_audio_cache_keys:
+            batch["audio_cache_keys"] = [
+                str(item[self.cache_key_column])
+                if self.cache_key_column is not None
+                else audio_cache_key(audio, self.sampling_rate)
+                for item, audio in zip(features, audios)
+            ]
         return dict(batch)

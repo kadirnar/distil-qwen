@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--audio-column", default="audio")
     train.add_argument("--text-column", default="text")
     train.add_argument("--prompt-column", default="prompt")
+    train.add_argument("--cache-key-column")
     train.add_argument("--batch-size", type=int, default=2)
     train.add_argument("--gradient-accumulation-steps", type=int, default=16)
     train.add_argument("--learning-rate", type=float, default=1e-4)
@@ -98,17 +99,44 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--gradient-checkpointing", action=argparse.BooleanOptionalAction, default=True
     )
+    train.add_argument(
+        "--gradient-checkpointing-use-reentrant",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     train.add_argument("--freeze-audio-tower", action=argparse.BooleanOptionalAction, default=True)
     train.add_argument("--freeze-embeddings", action=argparse.BooleanOptionalAction, default=True)
     train.add_argument(
         "--reuse-audio-features", action=argparse.BooleanOptionalAction, default=True
     )
     train.add_argument("--compile-model", action=argparse.BooleanOptionalAction, default=False)
+    train.add_argument(
+        "--compile-mode",
+        choices=("default", "reduce-overhead", "max-autotune"),
+        default="default",
+    )
+    train.add_argument("--liger", choices=("auto", "on", "off"), default="auto")
+    train.add_argument(
+        "--optimizer",
+        choices=(
+            "auto",
+            "adamw_torch",
+            "adamw_torch_fused",
+            "adamw_bnb_8bit",
+            "paged_adamw_8bit",
+        ),
+        default="auto",
+    )
+    train.add_argument("--tf32", action=argparse.BooleanOptionalAction, default=True)
+    train.add_argument("--activation-offload", action="store_true")
+    train.add_argument("--audio-cache-dir")
+    train.add_argument("--audio-cache-memory-mb", type=int, default=0)
     train.add_argument("--temperature", type=float, default=2.0)
     train.add_argument("--ce-weight", type=float, default=1.0)
     train.add_argument("--kl-weight", type=float, default=0.8)
     train.add_argument("--logit-chunk-size", type=int, default=32)
     train.add_argument("--label-smoothing", type=float, default=0.0)
+    train.add_argument("--distillation-backend", choices=("auto", "torch", "liger"), default="auto")
     train.add_argument("--seed", type=int, default=42)
     train.add_argument("--report-to", default="none")
     train.add_argument("--resume-from-checkpoint")
@@ -177,6 +205,7 @@ def _run_train(args: argparse.Namespace) -> None:
         audio_column=args.audio_column,
         text_column=args.text_column,
         prompt_column=args.prompt_column,
+        cache_key_column=args.cache_key_column,
         per_device_batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
@@ -193,9 +222,17 @@ def _run_train(args: argparse.Namespace) -> None:
         dtype=args.dtype,
         teacher_quantization=args.teacher_quantization,
         gradient_checkpointing=args.gradient_checkpointing,
+        gradient_checkpointing_use_reentrant=args.gradient_checkpointing_use_reentrant,
         freeze_audio_tower=args.freeze_audio_tower,
         freeze_embeddings=args.freeze_embeddings,
         compile_model=args.compile_model,
+        compile_mode=args.compile_mode,
+        liger=args.liger,
+        optimizer=args.optimizer,
+        tf32=args.tf32,
+        activation_offload=args.activation_offload,
+        audio_cache_dir=args.audio_cache_dir,
+        audio_cache_memory_mb=args.audio_cache_memory_mb,
         seed=args.seed,
         report_to=args.report_to,
         resume_from_checkpoint=args.resume_from_checkpoint,
@@ -207,6 +244,7 @@ def _run_train(args: argparse.Namespace) -> None:
         logit_chunk_size=args.logit_chunk_size,
         label_smoothing=args.label_smoothing,
         reuse_audio_features=args.reuse_audio_features,
+        loss_backend=args.distillation_backend,
     )
     run_training(run, distillation)
 
