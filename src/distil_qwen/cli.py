@@ -87,6 +87,13 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--eval-steps", type=int, default=500)
     train.add_argument("--save-total-limit", type=int, default=2)
     train.add_argument("--workers", type=int, default=4)
+    train.add_argument("--prefetch-factor", type=int, default=2)
+    train.add_argument(
+        "--dataloader-non-blocking", action=argparse.BooleanOptionalAction, default=True
+    )
+    train.add_argument("--group-by-length", action=argparse.BooleanOptionalAction, default=True)
+    train.add_argument("--length-column-name", default="__distil_qwen_length")
+    train.add_argument("--length-preprocessing-workers", type=int)
     train.add_argument(
         "--attention",
         choices=("auto", "eager", "sdpa", "flash_attention_2"),
@@ -95,12 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--dtype", choices=("auto", "float32", "float16", "bfloat16"), default="auto"
     )
-    train.add_argument("--teacher-quantization", choices=("4bit", "8bit"))
     train.add_argument(
         "--gradient-checkpointing", action=argparse.BooleanOptionalAction, default=True
     )
     train.add_argument(
         "--gradient-checkpointing-use-reentrant",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    train.add_argument(
+        "--gradient-checkpointing-preserve-rng-state",
         action=argparse.BooleanOptionalAction,
         default=False,
     )
@@ -115,6 +126,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("default", "reduce-overhead", "max-autotune"),
         default="default",
     )
+    train.add_argument(
+        "--compile-scope",
+        choices=("text_model", "decoder_layers"),
+        default="text_model",
+    )
     train.add_argument("--liger", choices=("auto", "on", "off"), default="auto")
     train.add_argument(
         "--optimizer",
@@ -122,13 +138,15 @@ def build_parser() -> argparse.ArgumentParser:
             "auto",
             "adamw_torch",
             "adamw_torch_fused",
-            "adamw_bnb_8bit",
-            "paged_adamw_8bit",
         ),
         default="auto",
     )
     train.add_argument("--tf32", action=argparse.BooleanOptionalAction, default=True)
     train.add_argument("--activation-offload", action="store_true")
+    train.add_argument("--ddp-bucket-cap-mb", type=int)
+    train.add_argument(
+        "--ddp-broadcast-buffers", action=argparse.BooleanOptionalAction, default=False
+    )
     train.add_argument("--audio-cache-dir")
     train.add_argument("--audio-cache-memory-mb", type=int, default=0)
     train.add_argument("--temperature", type=float, default=2.0)
@@ -218,19 +236,27 @@ def _run_train(args: argparse.Namespace) -> None:
         eval_steps=args.eval_steps,
         save_total_limit=args.save_total_limit,
         dataloader_num_workers=args.workers,
+        dataloader_prefetch_factor=args.prefetch_factor,
+        dataloader_non_blocking=args.dataloader_non_blocking,
+        group_by_length=args.group_by_length,
+        length_column_name=args.length_column_name,
+        length_preprocessing_workers=args.length_preprocessing_workers,
         attention=args.attention,
         dtype=args.dtype,
-        teacher_quantization=args.teacher_quantization,
         gradient_checkpointing=args.gradient_checkpointing,
         gradient_checkpointing_use_reentrant=args.gradient_checkpointing_use_reentrant,
+        gradient_checkpointing_preserve_rng_state=(args.gradient_checkpointing_preserve_rng_state),
         freeze_audio_tower=args.freeze_audio_tower,
         freeze_embeddings=args.freeze_embeddings,
         compile_model=args.compile_model,
         compile_mode=args.compile_mode,
+        compile_scope=args.compile_scope,
         liger=args.liger,
         optimizer=args.optimizer,
         tf32=args.tf32,
         activation_offload=args.activation_offload,
+        ddp_bucket_cap_mb=args.ddp_bucket_cap_mb,
+        ddp_broadcast_buffers=args.ddp_broadcast_buffers,
         audio_cache_dir=args.audio_cache_dir,
         audio_cache_memory_mb=args.audio_cache_memory_mb,
         seed=args.seed,

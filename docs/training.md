@@ -72,16 +72,14 @@ loss = 1.0 * pseudo_label_cross_entropy + 0.8 * KL(teacher || student)
 Both distributions use temperature 2.0 and the KL term is scaled by the squared temperature. The
 loss is exact; `--logit-chunk-size` changes memory and kernel-launch overhead, not its value.
 
-For constrained CUDA memory, try `--teacher-quantization 8bit`, then `4bit`. Quantization changes
-the teacher distribution, so validate quality before a full run.
-
 ## 4. Optimize the training runtime
 
 The default `auto` settings use BF16 when supported, FlashAttention 2 when it is installed and the
 GPU/dtype are compatible, Liger when it is installed on an accelerator, fused AdamW on CUDA,
-non-reentrant gradient checkpointing, TF32 matrix multiplication, pinned-memory loading, and
-persistent dataloader workers. Unsupported explicit kernel requests fail instead of silently
-falling back.
+non-reentrant gradient checkpointing, TF32 matrix multiplication, padding-aware length grouping,
+non-blocking pinned-memory loading, and persistent dataloader workers. Qwen3-ASR's checkpointed
+decoder blocks have no dropout, so RNG-state preservation is disabled by default to avoid needless
+bookkeeping. Unsupported explicit kernel requests fail instead of silently falling back.
 
 For the fast CUDA path:
 
@@ -120,16 +118,50 @@ stable, globally unique audio IDs. Disk entries are isolated by teacher checkpoi
 atomic safetensors files. The first pass computes a miss; later epochs reuse it. Do not enable this
 cache while training or structurally reducing the audio tower.
 
+Length grouping performs a one-time, dataset-cached duration scan and estimates the combined
+post-encoder audio and transcript cost. It is enabled by default. Use multiple preprocessing
+workers for large manifests, or disable it when a custom batch sampler already performs packing:
+
+```bash
+distil-qwen train \
+  --student outputs/student-init \
+  --dataset data/filtered.jsonl \
+  --length-preprocessing-workers 8 \
+  --output-dir outputs/student
+```
+
+Compilation is opt-in. It is applied directly to the text module invoked by the custom
+distillation engine, rather than the unused outer forward. In-place module compilation also keeps
+saved checkpoint keys stable:
+
+```bash
+distil-qwen train \
+  --student outputs/student-init \
+  --dataset data/filtered.jsonl \
+  --compile-model \
+  --compile-scope text_model \
+  --output-dir outputs/student
+```
+
+`decoder_layers` is an alternative regional scope with lower compilation startup cost. Benchmark
+both scopes because the best choice depends on sequence-length variance and PyTorch/CUDA versions.
+
 Choose additional memory levers deliberately:
 
 | Setting | Memory | Throughput | Notes |
 | --- | --- | --- | --- |
-| `--optimizer paged_adamw_8bit` | Lower optimizer state | Workload-dependent | Requires the `quantization` extra |
 | `--activation-offload` | Much lower activation VRAM | Lower | Moves saved tensors to pinned CPU memory |
-| `--teacher-quantization 8bit` | Lower teacher VRAM | Workload-dependent | Changes teacher logits; validate quality |
 | smaller `--logit-chunk-size` | Lower loss workspace | Lower | Objective remains exact |
-| `--compile-model --compile-mode default` | Workload-dependent | Higher after warmup | Measure compile cost and graph breaks |
+| `--compile-model --compile-scope text_model` | Workload-dependent | Higher after warmup | Compiles the executed text path |
 | `--no-gradient-checkpointing` | Higher | Higher | Useful only when activation memory fits |
+
+Training intentionally stays in FP32, FP16, or BF16. It does not use FP8, integer-quantized
+teachers, or integer optimizer states, so the teacher distribution and trainable weights retain
+their floating-point representation.
+
+For distributed data parallel training, immutable model buffers do not need to be broadcast every
+iteration, so `--no-ddp-broadcast-buffers` is the default. `--ddp-bucket-cap-mb` is exposed for
+interconnect-specific tuning; leave it unset until profiling shows communication is a bottleneck.
 
 The default frozen-head loss is specially optimized: it retains only the gradient for each decoder
 hidden-state chunk and immediately releases the vocabulary logits. If embeddings/LM head are made

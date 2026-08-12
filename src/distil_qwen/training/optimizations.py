@@ -18,8 +18,6 @@ _OPTIMIZERS = {
     "auto",
     "adamw_torch",
     "adamw_torch_fused",
-    "adamw_bnb_8bit",
-    "paged_adamw_8bit",
 }
 _RMS_NORM_NAMES = {"Qwen3ASRTextRMSNorm", "Qwen3ASRThinkerTextRMSNorm"}
 _SWIGLU_NAMES = {"Qwen3ASRTextMLP", "Qwen3ASRThinkerTextMLP"}
@@ -30,6 +28,12 @@ class LigerPatchReport:
     rms_norms: int
     swiglu_mlps: int
     rope: bool
+
+
+@dataclass(frozen=True)
+class CompileReport:
+    scope: str
+    modules: int
 
 
 def package_available(name: str) -> bool:
@@ -54,10 +58,6 @@ def resolve_optimizer(requested: str) -> str:
         raise ValueError(f"unsupported optimizer: {requested}")
     if requested == "auto":
         return "adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch"
-    if "8bit" in requested and not package_available("bitsandbytes"):
-        raise OptionalDependencyError(
-            "8-bit optimizers require `pip install 'distil-qwen[quantization]'`."
-        )
     if requested == "adamw_torch_fused" and not torch.cuda.is_available():
         raise ValueError("adamw_torch_fused requires CUDA")
     return requested
@@ -86,6 +86,38 @@ def resolve_attention(requested: str, dtype: torch.dtype) -> str:
             "FlashAttention 2 training requires fp16/bf16, a supported GPU, and `flash-attn`."
         )
     return requested
+
+
+def compile_training_modules(
+    model: torch.nn.Module,
+    *,
+    scope: str = "text_model",
+    mode: str = "default",
+    dynamic: bool = True,
+) -> CompileReport:
+    """Compile the Qwen modules that the custom distillation path actually calls.
+
+    ``Module.compile`` changes ``__call__`` in place, avoiding the ``_orig_mod`` state-dict
+    prefixes introduced when a compiled wrapper replaces a checkpointed submodule.
+    """
+
+    if scope not in {"text_model", "decoder_layers"}:
+        raise ValueError("compile scope must be 'text_model' or 'decoder_layers'")
+    text_model = get_text_model(model)
+    if scope == "text_model":
+        modules = [text_model]
+    else:
+        modules = list(text_model.layers)
+        if not modules:
+            raise RuntimeError("Qwen text model has no decoder layers to compile")
+    for module in modules:
+        module.compile(
+            backend="inductor",
+            mode=mode,
+            dynamic=dynamic,
+            fullgraph=False,
+        )
+    return CompileReport(scope=scope, modules=len(modules))
 
 
 def _load_liger_components() -> tuple[type[Any], type[Any], Callable[..., Any]]:

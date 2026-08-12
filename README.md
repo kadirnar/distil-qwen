@@ -73,11 +73,15 @@ print(result.text)
 ## What is optimized
 
 - Frozen audio features are shared by teacher and student and can be cached across epochs.
+- Training batches are grouped by estimated post-encoder audio and transcript length to reduce
+  padding, with non-blocking device transfer and persistent worker prefetching.
 - Only supervised tokens are projected to the 151k-token vocabulary.
 - Frozen-head KL/CE retains hidden gradients instead of vocabulary logits; an optional Liger fused
   loss covers trainable heads.
-- Liger RMSNorm/SwiGLU/RoPE, BF16, FlashAttention 2, fused AdamW, non-reentrant checkpointing, and
-  TF32 are selected when supported.
+- Liger RMSNorm/SwiGLU/RoPE, BF16, FlashAttention 2, fused AdamW, non-reentrant checkpointing,
+  reduced RNG bookkeeping, and TF32 are selected when supported.
+- Optional compilation targets the Qwen text modules actually invoked by distillation and keeps
+  checkpoint state-dict keys unchanged.
 - Inference supports KV caching, optional compilation, 4/8-bit loading, and vLLM.
 - Pseudo-labels can be filtered by WER/CER and repeated n-grams.
 

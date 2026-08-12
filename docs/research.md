@@ -23,6 +23,12 @@ The implementation follows four observations from the upstream work.
    and bf16 attention on supported CUDA/ROCm hardware. Qwen3-ASR's audio tower already exposes its
    variable-length sequence boundaries, while the causal text tower routes through the same
    Transformers attention backend.
+7. Variable-duration speech makes fixed-size random batches padding-heavy. The trainer caches a
+   length estimate based on Qwen3-ASR's post-encoder audio rate plus transcript length and uses the
+   pinned Transformers length-grouped sampler.
+8. The custom loss calls the inner text modules directly. Compilation therefore targets those
+   modules in place; compiling only the outer model would not cover the executed forward and could
+   introduce wrapper-prefixed checkpoint keys.
 
 ## Qwen-specific changes
 
@@ -52,3 +58,6 @@ No unverified speed or accuracy claim is encoded in the project. The balanced 14
 starting point based on the teacher's 28-layer decoder. A released checkpoint should include
 multilingual WER/CER, long-form repetition/insertion metrics, real-time factor, peak memory, and
 teacher comparisons.
+
+Training quantization is deliberately outside the design. BF16 is the preferred CUDA format, with
+FP16 or FP32 used where hardware requires it; FP8 and integer training paths are not used.

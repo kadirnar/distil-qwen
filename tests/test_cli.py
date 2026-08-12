@@ -9,6 +9,10 @@ def test_parser_accepts_minimal_commands() -> None:
     assert init_args.text_layers == 14
     train_args = parser.parse_args(["train", "--student", "student", "--dataset", "data.jsonl"])
     assert train_args.freeze_audio_tower is True
+    assert train_args.group_by_length is True
+    assert train_args.gradient_checkpointing_preserve_rng_state is False
+    assert train_args.compile_scope == "text_model"
+    assert train_args.ddp_broadcast_buffers is False
     inference_args = parser.parse_args(["transcribe", "a.wav", "--model", "model"])
     assert inference_args.batch_size == 8
 
