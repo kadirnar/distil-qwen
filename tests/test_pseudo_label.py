@@ -15,6 +15,9 @@ class FakeASR:
         self.batch_sizes.append(len(audio))
         return [SimpleNamespace(text=f"label-{item}", language="English") for item in audio]
 
+    def close(self):
+        return None
+
 
 def test_pseudo_label_jsonl_streams_in_requested_batches(tmp_path, monkeypatch) -> None:
     source = tmp_path / "input.jsonl"

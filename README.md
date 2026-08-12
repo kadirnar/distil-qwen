@@ -22,7 +22,8 @@ pip install -e ".[train,kernels]"
 MAX_JOBS=4 pip install flash-attn==2.8.3.post1 --no-build-isolation
 ```
 
-For inference only, use `pip install -e ".[inference]"`. Add `quantization` or `vllm` when needed.
+For local inference use `pip install -e ".[inference]"`. Add `vllm` for the in-process vLLM
+engine, `server` for vLLM/SGLang/llama.cpp endpoints, or `quantization` when needed.
 
 ## Quick start
 
@@ -70,6 +71,45 @@ result = asr.transcribe("audio/example.wav", language="English")[0]
 print(result.text)
 ```
 
+## Inference backends
+
+Every runtime uses `OptimizedASR`, `InferenceConfig`, and the same ordered list of
+`Transcription` results:
+
+| Backend | Mode | Model | Notes |
+|---|---|---|---|
+| `transformers` | local | distilled checkpoint or `Qwen/Qwen3-ASR-1.7B` | default; SDPA/FA2, KV cache, compile |
+| `vllm` | local or server | distilled checkpoint | continuous batching; server mode uses `/v1/audio/transcriptions` |
+| `sglang` | server | distilled checkpoint | high-throughput `/v1/audio/transcriptions` |
+| `llama_cpp` | server | converted GGUF | CPU/GPU GGUF inference through multimodal chat |
+
+Start a server, then point the same CLI at it:
+
+```bash
+# vLLM (the qwen-asr wrapper passes through vLLM serve arguments)
+qwen-asr-serve outputs/student --host 0.0.0.0 --port 8000
+distil-qwen transcribe audio/example.wav --model outputs/student \
+  --backend vllm --server-url http://localhost:8000/v1
+
+# SGLang
+python -m sglang.launch_server --model-path outputs/student --host 0.0.0.0 --port 30000
+distil-qwen transcribe audio/example.wav --model outputs/student \
+  --backend sglang --server-url http://localhost:30000/v1
+
+# llama.cpp (use a converted student GGUF + multimodal projector)
+llama-server -m student.gguf --mmproj mmproj-student.gguf --host 0.0.0.0 --port 8080
+distil-qwen transcribe audio/example.wav --model student \
+  --backend llama_cpp --server-url http://localhost:8080/v1
+```
+
+For server backends, `--model` may be omitted when `/v1/models` advertises exactly one loaded
+model. Keep it explicit for routers serving multiple models.
+
+For an immediate llama.cpp test, its official pre-converted teacher can be launched with
+`llama-server -hf ggml-org/Qwen3-ASR-1.7B-GGUF`. The client validates the server's audio
+capability before inference. See [inference.md](docs/inference.md) for native Transformers 5,
+batching, context, timestamps, conversion, and server tuning.
+
 ## What is optimized
 
 - Frozen audio features are shared by teacher and student and can be cached across epochs.
@@ -82,7 +122,9 @@ print(result.text)
   reduced RNG bookkeeping, and TF32 are selected when supported.
 - Optional compilation targets the Qwen text modules actually invoked by distillation and keeps
   checkpoint state-dict keys unchanged.
-- Inference supports KV caching, optional compilation, 4/8-bit loading, and vLLM.
+- Inference supports Transformers, vLLM, SGLang, and llama.cpp; KV caching, optional compilation,
+  4/8-bit loading, continuous/server batching, and bounded concurrent requests are available where
+  the backend supports them.
 - Pseudo-labels can be filtered by WER/CER and repeated n-grams.
 
 See [training.md](docs/training.md) for the full workflow and [research.md](docs/research.md) for the

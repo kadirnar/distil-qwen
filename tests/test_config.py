@@ -24,6 +24,8 @@ def test_default_configs_are_valid() -> None:
         (lambda: InferenceConfig(attention="magic"), "attention"),
         (lambda: InferenceConfig(quantization="2bit"), "quantization"),
         (lambda: InferenceConfig(batch_size=0), "positive"),
+        (lambda: InferenceConfig(request_timeout=0), "request_timeout"),
+        (lambda: InferenceConfig(api_key_env=""), "api_key_env"),
     ],
 )
 def test_invalid_configs_raise(factory, match: str) -> None:
@@ -35,3 +37,8 @@ def test_configs_serialize_to_plain_dicts() -> None:
     assert StudentSpec(audio_layers=12).to_dict() == {"text_layers": 14, "audio_layers": 12}
     assert DistillationConfig().to_dict()["reuse_audio_features"] is True
     assert InferenceConfig().to_dict()["quantization"] is None
+
+
+def test_inference_backend_aliases_are_normalized() -> None:
+    assert InferenceConfig(backend="llama.cpp").backend == "llama_cpp"
+    assert InferenceConfig(backend="llama-cpp").backend == "llama_cpp"

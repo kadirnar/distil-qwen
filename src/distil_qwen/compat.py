@@ -24,3 +24,15 @@ def flash_attention_available() -> bool:
     """Return whether FlashAttention 2 can be selected safely."""
 
     return importlib.util.find_spec("flash_attn") is not None
+
+
+def require_httpx() -> Any:
+    """Import the lightweight client used by server-backed inference."""
+
+    try:
+        import httpx
+    except ImportError as exc:
+        raise OptionalDependencyError(
+            "server inference requires `pip install 'distil-qwen[server]'`."
+        ) from exc
+    return httpx

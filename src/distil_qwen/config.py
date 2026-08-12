@@ -55,7 +55,7 @@ class DistillationConfig:
 
 @dataclass(frozen=True)
 class InferenceConfig:
-    """Portable inference settings for Transformers or vLLM."""
+    """Portable inference settings for local engines and inference servers."""
 
     backend: str = "transformers"
     device: str = "auto"
@@ -65,10 +65,15 @@ class InferenceConfig:
     max_new_tokens: int = 256
     quantization: Optional[str] = None
     compile_model: bool = False
+    server_url: Optional[str] = None
+    request_timeout: float = 120.0
+    api_key_env: str = "DISTIL_QWEN_API_KEY"
 
     def __post_init__(self) -> None:
-        if self.backend not in {"transformers", "vllm"}:
-            raise ValueError("backend must be 'transformers' or 'vllm'")
+        backend = self.backend.lower().replace("-", "_").replace(".", "_")
+        object.__setattr__(self, "backend", backend)
+        if backend not in {"transformers", "vllm", "sglang", "llama_cpp"}:
+            raise ValueError("backend must be 'transformers', 'vllm', 'sglang', or 'llama_cpp'")
         if self.dtype not in {"auto", "float32", "float16", "bfloat16"}:
             raise ValueError("unsupported dtype")
         if self.attention not in {"auto", "eager", "sdpa", "flash_attention_2"}:
@@ -77,6 +82,10 @@ class InferenceConfig:
             raise ValueError("quantization must be None, '4bit', or '8bit'")
         if self.batch_size < 1 or self.max_new_tokens < 1:
             raise ValueError("batch_size and max_new_tokens must be positive")
+        if self.request_timeout <= 0:
+            raise ValueError("request_timeout must be positive")
+        if not self.api_key_env:
+            raise ValueError("api_key_env cannot be empty")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

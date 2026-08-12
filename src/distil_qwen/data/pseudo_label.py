@@ -51,5 +51,8 @@ def pseudo_label_jsonl(
             enriched["teacher_language"] = result.language
             yield enriched
 
-    _atomic_write_jsonl(output_path, label_records())
+    try:
+        _atomic_write_jsonl(output_path, label_records())
+    finally:
+        model.close()
     return count

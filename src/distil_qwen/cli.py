@@ -13,7 +13,11 @@ from distil_qwen.config import DistillationConfig, InferenceConfig, StudentSpec
 
 
 def _add_inference_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--backend", choices=("transformers", "vllm"), default="transformers")
+    parser.add_argument(
+        "--backend",
+        choices=("transformers", "vllm", "sglang", "llama_cpp"),
+        default="transformers",
+    )
     parser.add_argument("--device", default="auto")
     parser.add_argument(
         "--dtype", choices=("auto", "float32", "float16", "bfloat16"), default="auto"
@@ -27,6 +31,12 @@ def _add_inference_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--quantization", choices=("4bit", "8bit"))
     parser.add_argument("--compile-model", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--server-url",
+        help="OpenAI-compatible endpoint for remote vLLM, SGLang, or llama.cpp",
+    )
+    parser.add_argument("--request-timeout", type=float, default=120.0)
+    parser.add_argument("--api-key-env", default="DISTIL_QWEN_API_KEY")
 
 
 def _inference_config(args: argparse.Namespace) -> InferenceConfig:
@@ -39,6 +49,9 @@ def _inference_config(args: argparse.Namespace) -> InferenceConfig:
         max_new_tokens=args.max_new_tokens,
         quantization=args.quantization,
         compile_model=args.compile_model,
+        server_url=args.server_url,
+        request_timeout=args.request_timeout,
+        api_key_env=args.api_key_env,
     )
 
 
@@ -161,7 +174,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     transcribe = commands.add_parser("transcribe", help="transcribe one or more audio files")
     transcribe.add_argument("audio", nargs="+")
-    transcribe.add_argument("--model", required=True)
+    transcribe.add_argument(
+        "--model",
+        help="model path/name; optional for a server that advertises exactly one model",
+    )
     transcribe.add_argument("--language")
     transcribe.add_argument("--context", default="")
     _add_inference_arguments(transcribe)
@@ -188,7 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     benchmark = commands.add_parser("benchmark", help="measure latency and real-time factor")
     benchmark.add_argument("audio", nargs="+")
-    benchmark.add_argument("--model", required=True)
+    benchmark.add_argument(
+        "--model",
+        help="model path/name; optional for a server that advertises exactly one model",
+    )
     benchmark.add_argument("--warmup-runs", type=int, default=1)
     benchmark.add_argument("--measured-runs", type=int, default=3)
     _add_inference_arguments(benchmark)
@@ -279,7 +298,10 @@ def _run_transcribe(args: argparse.Namespace) -> None:
     from distil_qwen.inference import OptimizedASR
 
     model = OptimizedASR.from_pretrained(args.model, _inference_config(args))
-    results = model.transcribe(args.audio, context=args.context, language=args.language)
+    try:
+        results = model.transcribe(args.audio, context=args.context, language=args.language)
+    finally:
+        model.close()
     print(json.dumps([asdict(result) for result in results], ensure_ascii=False, indent=2))
 
 
@@ -319,12 +341,15 @@ def _run_benchmark(args: argparse.Namespace) -> None:
     from distil_qwen.inference import OptimizedASR
 
     model = OptimizedASR.from_pretrained(args.model, _inference_config(args))
-    result = benchmark(
-        model,
-        args.audio,
-        warmup_runs=args.warmup_runs,
-        measured_runs=args.measured_runs,
-    )
+    try:
+        result = benchmark(
+            model,
+            args.audio,
+            warmup_runs=args.warmup_runs,
+            measured_runs=args.measured_runs,
+        )
+    finally:
+        model.close()
     print(json.dumps(result.to_dict(), indent=2))
 
 
