@@ -5,9 +5,18 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # qwen-asr 0.0.6 pins transformers==4.57.6. Revisit this guard when
+    # upstream publishes Transformers 5 support.
+    ignore:
+      - dependency-name: transformers
+        versions:
+          - ">=5"
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-
+    groups:
+      github-actions:
+        patterns:
+          - "*"
