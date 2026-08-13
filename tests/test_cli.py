@@ -15,6 +15,19 @@ def test_parser_accepts_minimal_commands() -> None:
     assert train_args.ddp_broadcast_buffers is False
     inference_args = parser.parse_args(["transcribe", "a.wav", "--model", "model"])
     assert inference_args.batch_size == 8
+    server_args = parser.parse_args(
+        [
+            "transcribe",
+            "a.wav",
+            "--model",
+            "model",
+            "--backend",
+            "sglang",
+            "--server-url",
+            "http://localhost:30000/v1",
+        ]
+    )
+    assert server_args.server_url == "http://localhost:30000/v1"
 
 
 def test_main_reports_version(capsys) -> None:

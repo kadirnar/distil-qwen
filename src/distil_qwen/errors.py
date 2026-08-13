@@ -11,3 +11,15 @@ class ModelContractError(DistilQwenError):
 
 class OptionalDependencyError(DistilQwenError, ImportError):
     """Raised when an optional feature dependency is unavailable."""
+
+
+class BackendConfigurationError(DistilQwenError, ValueError):
+    """Raised when an inference backend is configured inconsistently."""
+
+
+class BackendFeatureError(DistilQwenError, NotImplementedError):
+    """Raised when an upstream backend cannot provide a requested feature."""
+
+
+class BackendRequestError(DistilQwenError):
+    """Raised when an inference server rejects or cannot complete a request."""

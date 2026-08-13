@@ -17,12 +17,18 @@ class FakeBackend:
         assert kwargs["audio"] == "sample.wav"
         return [SimpleNamespace(language="English", text="hello", time_stamps=None)]
 
+    def close(self):
+        self.closed = True
+
 
 def test_optimized_asr_converts_backend_results() -> None:
-    model = OptimizedASR(FakeBackend(), InferenceConfig())
+    backend = FakeBackend()
+    model = OptimizedASR(backend, InferenceConfig())
     result = model.transcribe("sample.wav")[0]
     assert result.language == "English"
     assert result.text == "hello"
+    model.close()
+    assert backend.closed is True
 
 
 def test_runtime_resolution_on_explicit_values() -> None:
